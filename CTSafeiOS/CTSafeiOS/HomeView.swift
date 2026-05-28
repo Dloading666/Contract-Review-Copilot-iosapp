@@ -17,6 +17,7 @@ struct HomeView: View {
     @State private var phase: ReviewPhase = .idle
     @State private var isImporterPresented = false
     @State private var reviewTask: Task<Void, Never>? = nil
+    @State private var reviewFinished = false
 
     private var statusText: String {
         switch phase {
@@ -91,6 +92,7 @@ struct HomeView: View {
             switch result {
             case .success(let url):
                 reviewTask?.cancel()
+                reviewFinished = false
                 reviewTask = Task { await startReview(fileURL: url) }
             case .failure(let error):
                 phase = .failed(error.localizedDescription)
@@ -133,6 +135,7 @@ struct HomeView: View {
                                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(DogeTheme.ink, lineWidth: 2.5))
                         }
                         Button {
+                            reviewFinished = false
                             phase = .idle
                         } label: {
                             Text("重新上传")
@@ -348,17 +351,18 @@ struct HomeView: View {
 
     /// Check server for session result. Mark complete if found, error only if server has nothing.
     private func checkServerAndFinish(sessionId: String) async {
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, !reviewFinished else { return }
         do {
             let response: ReviewSessionsResponse = try await APIClient.shared.get("/review-sessions")
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !reviewFinished else { return }
             if let match = response.sessions.first(where: { $0.sessionId == sessionId }) {
                 selectedSession = match
+                reviewFinished = true
                 phase = .complete(sessionId: sessionId)
                 return
             }
         } catch {}
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, !reviewFinished else { return }
         phase = .failed("审查未返回结果，请重试")
     }
 
