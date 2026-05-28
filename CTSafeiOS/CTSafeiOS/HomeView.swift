@@ -276,6 +276,7 @@ struct HomeView: View {
 
         var collectedIssues: [[String: Any]] = []
         var hitBreakpoint = false
+        var hitComplete = false
 
         do {
             for try await event in SSEClient.stream(
@@ -294,6 +295,7 @@ struct HomeView: View {
                     break
                 }
                 if event.event == "review_complete" {
+                    hitComplete = true
                     await finishReview(sessionId: sessionId)
                     return
                 }
@@ -304,13 +306,13 @@ struct HomeView: View {
                 }
             }
         } catch {
-            if !hitBreakpoint {
+            if !hitBreakpoint && !hitComplete {
                 phase = .failed("网络错误：\(error.localizedDescription)")
                 return
             }
         }
 
-        guard hitBreakpoint else {
+        guard hitBreakpoint || hitComplete else {
             phase = .failed("审查未返回结果，请重试")
             return
         }
