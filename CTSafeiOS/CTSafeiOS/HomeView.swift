@@ -270,10 +270,9 @@ struct HomeView: View {
         let filename = ingestResponse.displayName ?? fileURL.lastPathComponent
         let sessionId = "session-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
 
-        // Step 2: Start review SSE
+        // Step 2: Start review SSE — process events for progress, always check server at the end
         phase = .reviewing(progress: "正在分析合同条款...")
         let token = authStore.token
-
         var collectedIssues: [[String: Any]] = []
         var hitBreakpoint = false
 
@@ -288,13 +287,11 @@ struct HomeView: View {
                 handleReviewEvent(event.event, dict: dict, sessionId: sessionId, collectedIssues: &collectedIssues)
                 if event.event == "breakpoint" {
                     hitBreakpoint = true
-                    if let issues = dict["issues"] as? [[String: Any]] {
-                        collectedIssues = issues
-                    }
+                    if let issues = dict["issues"] as? [[String: Any]] { collectedIssues = issues }
                     break
                 }
                 if event.event == "review_complete" {
-                    await finishReview(sessionId: sessionId)
+                    await checkServerAndFinish(sessionId: sessionId)
                     return
                 }
                 if event.event == "error" {
@@ -304,14 +301,14 @@ struct HomeView: View {
                 }
             }
         } catch {
-            // Stream error — server may have already completed, try fetching result
-            await finishReviewOrFallback(sessionId: sessionId)
+            // Stream error — server may have already saved the result
+            await checkServerAndFinish(sessionId: sessionId)
             return
         }
 
         // Stream ended without breakpoint or review_complete
         if !hitBreakpoint {
-            await finishReviewOrFallback(sessionId: sessionId)
+            await checkServerAndFinish(sessionId: sessionId)
             return
         }
 
@@ -335,7 +332,7 @@ struct HomeView: View {
                     phase = .reviewing(progress: "正在生成报告...")
                 }
                 if event.event == "review_complete" {
-                    await finishReview(sessionId: sessionId)
+                    await checkServerAndFinish(sessionId: sessionId)
                     return
                 }
                 if event.event == "error" {
@@ -344,25 +341,20 @@ struct HomeView: View {
                     return
                 }
             }
-        } catch {
-            await finishReviewOrFallback(sessionId: sessionId)
-            return
-        }
+        } catch {}
 
-        // Confirm SSE ended without review_complete
-        await finishReviewOrFallback(sessionId: sessionId)
+        // Confirm SSE ended — check server
+        await checkServerAndFinish(sessionId: sessionId)
     }
 
-    /// Try to fetch the completed session from server. If found, mark complete; otherwise show error.
-    private func finishReviewOrFallback(sessionId: String) async {
+    /// Check server for session result. Mark complete if found, error only if server has nothing.
+    private func checkServerAndFinish(sessionId: String) async {
         do {
             let response: ReviewSessionsResponse = try await APIClient.shared.get("/review-sessions")
             if let match = response.sessions.first(where: { $0.sessionId == sessionId }) {
-                if match.status == "complete" || match.status == "breakpoint" {
-                    selectedSession = match
-                    phase = .complete(sessionId: sessionId)
-                    return
-                }
+                selectedSession = match
+                phase = .complete(sessionId: sessionId)
+                return
             }
         } catch {}
         phase = .failed("审查未返回结果，请重试")
@@ -383,17 +375,6 @@ struct HomeView: View {
             }
         default: break
         }
-    }
-
-    private func finishReview(sessionId: String) async {
-        phase = .complete(sessionId: sessionId)
-        // Refresh session list so history tab is up to date
-        do {
-            let response: ReviewSessionsResponse = try await APIClient.shared.get("/review-sessions")
-            if let match = response.sessions.first(where: { $0.sessionId == sessionId }) ?? response.sessions.first {
-                selectedSession = match
-            }
-        } catch {}
     }
 }
 
