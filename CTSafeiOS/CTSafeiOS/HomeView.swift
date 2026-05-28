@@ -349,21 +349,18 @@ struct HomeView: View {
         await checkServerAndFinish(sessionId: sessionId)
     }
 
-    /// Check server for session result. Mark complete if found, error only if server has nothing.
+    /// Mark review as complete, then try to fetch session details in background.
     private func checkServerAndFinish(sessionId: String) async {
         guard !Task.isCancelled, !reviewFinished else { return }
+        reviewFinished = true
+        phase = .complete(sessionId: sessionId)
+        // Fetch session details for history tab — failure here doesn't affect completion state
         do {
             let response: ReviewSessionsResponse = try await APIClient.shared.get("/review-sessions")
-            guard !Task.isCancelled, !reviewFinished else { return }
             if let match = response.sessions.first(where: { $0.sessionId == sessionId }) {
                 selectedSession = match
-                reviewFinished = true
-                phase = .complete(sessionId: sessionId)
-                return
             }
         } catch {}
-        guard !Task.isCancelled, !reviewFinished else { return }
-        phase = .failed("审查未返回结果，请重试")
     }
 
     private func handleReviewEvent(_ eventName: String, dict: [String: Any], sessionId: String, collectedIssues: inout [[String: Any]]) {
