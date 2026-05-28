@@ -301,7 +301,6 @@ struct HomeView: View {
                 }
             }
         } catch {
-            // Stream error — server may have already saved the result
             await checkServerAndFinish(sessionId: sessionId)
             return
         }
@@ -349,14 +348,17 @@ struct HomeView: View {
 
     /// Check server for session result. Mark complete if found, error only if server has nothing.
     private func checkServerAndFinish(sessionId: String) async {
+        guard !Task.isCancelled else { return }
         do {
             let response: ReviewSessionsResponse = try await APIClient.shared.get("/review-sessions")
+            guard !Task.isCancelled else { return }
             if let match = response.sessions.first(where: { $0.sessionId == sessionId }) {
                 selectedSession = match
                 phase = .complete(sessionId: sessionId)
                 return
             }
         } catch {}
+        guard !Task.isCancelled else { return }
         phase = .failed("审查未返回结果，请重试")
     }
 
