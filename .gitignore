@@ -1,0 +1,66 @@
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode
+build/
+DerivedData/
+*.xcuserdata
+*.xcscmblueprint
+*.xccheckout
+xcuserdata/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Packages/
+Package.pins
+Package.resolved
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+
+# CocoaPods
+Pods/
+*.xcworkspace
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+.venv/
+venv/
+*.egg
+
+# Environment
+.env
+.env.local
+.env.docker
+*.pem
+*.key
+backend.env
+container-env-*.env
+
+# Server deploy backups
+server/contract-review-copilot/.deploy-backups/
+server/contract-review-copilot/.codex/
+
+# Node
+node_modules/
+.next/
+
+# Docker
+*.log

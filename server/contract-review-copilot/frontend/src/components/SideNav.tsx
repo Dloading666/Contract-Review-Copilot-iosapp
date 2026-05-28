@@ -1,0 +1,472 @@
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type SyntheticEvent } from 'react'
+import { MessageSquare, History, Settings, Trash2 } from 'lucide-react'
+import { deletePersistedReviewHistoryEntry, loadPersistedReviewHistoryFromOwners } from '../lib/reviewHistory'
+import { safeFetchJSON } from '../lib/apiClient'
+import { apiPath } from '../lib/apiPaths'
+import type { User } from '../contexts/AuthContext'
+import dogeImage from '../assets/branding/doge.png'
+
+function handleDogeImageError(event: SyntheticEvent<HTMLImageElement>) {
+  const image = event.currentTarget
+  if (image.dataset.fallbackApplied === 'true') return
+  image.dataset.fallbackApplied = 'true'
+  image.src = '/doge.png'
+}
+
+interface SideNavProps {
+  user?: User | null
+  token?: string | null
+  onLogout?: () => void
+  onSelectHistorySession?: (sessionId: string) => void
+  onDeleteHistorySession?: (sessionId: string) => void
+  onOpenSettings?: () => void
+  activeView?: string
+}
+
+interface HistoryListItem {
+  sessionId: string
+  filename: string
+  date: string
+}
+
+export function SideNav({ user, token, onLogout, onSelectHistorySession, onDeleteHistorySession, onOpenSettings, activeView }: SideNavProps) {
+  const [showHistory, setShowHistory] = useState(false)
+  const [historyItems, setHistoryItems] = useState<HistoryListItem[]>([])
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768)
+  const historyDropdownRef = useRef<HTMLDivElement>(null)
+  const historyButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
+
+  const loadHistoryItems = async () => {
+    try {
+      const parsed = loadPersistedReviewHistoryFromOwners<HistoryListItem>([user?.id, user?.email])
+      if (!user || !token) {
+        setHistoryItems(parsed)
+        return
+      }
+      const payload = await safeFetchJSON<{ sessions?: Array<{
+        sessionId: string
+        filename?: string
+        updatedAt?: string
+        createdAt?: string
+        completedAt?: string
+      }> }>(apiPath('/review-sessions'), {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const cloudItems = (payload.sessions ?? []).map((session) => ({
+        sessionId: session.sessionId,
+        filename: session.filename || '未命名合同',
+        date: session.completedAt || session.updatedAt || session.createdAt || '',
+      }))
+      setHistoryItems(cloudItems.length > 0 ? cloudItems : parsed)
+    } catch {
+      try {
+        setHistoryItems(loadPersistedReviewHistoryFromOwners<HistoryListItem>([user?.id, user?.email]))
+      } catch {
+        setHistoryItems([])
+      }
+    }
+  }
+
+  const handleHistoryClick = () => {
+    void loadHistoryItems()
+    setShowHistory(prev => !prev)
+  }
+
+  const handleHistorySelect = (sessionId: string) => {
+    setShowHistory(false)
+    onSelectHistorySession?.(sessionId)
+  }
+
+  const handleHistoryDelete = (event: ReactMouseEvent<HTMLButtonElement>, historyItem: HistoryListItem) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const filename = historyItem.filename || '未命名合同'
+    if (!window.confirm(`确定删除「${filename}」这条审查历史吗？`)) {
+      return
+    }
+
+    deletePersistedReviewHistoryEntry(historyItem.sessionId, [user?.id, user?.email])
+    setHistoryItems((prev) => prev.filter((item) => item.sessionId !== historyItem.sessionId))
+    onDeleteHistorySession?.(historyItem.sessionId)
+  }
+
+  useEffect(() => {
+    if (!showHistory) return
+    const handleClickOutside = (event: globalThis.MouseEvent) => {
+      const target = event.target as Node
+      if (historyDropdownRef.current?.contains(target)) return
+      if (historyButtonRef.current?.contains(target)) return
+      setShowHistory(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showHistory])
+
+  const mobileNavBottom = 'calc(36px + env(safe-area-inset-bottom, 0px))'
+  const mobileHistoryBottom = 'calc(108px + env(safe-area-inset-bottom, 0px))'
+  const iconSize = isMobile ? 20 : 26
+
+  const navItems = [
+    { id: 'chat', icon: <MessageSquare size={iconSize} />, label: '实时对话', onClick: () => setShowHistory(false) },
+    { id: 'history', icon: <History size={iconSize} />, label: '审查历史', onClick: handleHistoryClick, ref: historyButtonRef },
+  ]
+
+  const renderHistoryItem = (historyItem: HistoryListItem, variant: 'mobile' | 'desktop') => {
+    const filename = historyItem.filename || '未命名合同'
+
+    return (
+      <div
+        key={historyItem.sessionId}
+        style={{
+          display: 'flex',
+          alignItems: 'stretch',
+          width: '100%',
+          borderBottom: '3px solid black',
+          background: 'white',
+        }}
+        onMouseEnter={e => {
+          if (variant === 'desktop') e.currentTarget.style.background = 'var(--color-orange-light)'
+        }}
+        onMouseLeave={e => {
+          if (variant === 'desktop') e.currentTarget.style.background = 'white'
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => handleHistorySelect(historyItem.sessionId)}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            textAlign: 'left',
+            padding: variant === 'mobile' ? '10px 14px' : '10px 12px 10px 14px',
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-pixel)',
+            fontSize: 8,
+            color: 'var(--color-ink)',
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 4, lineHeight: 1.4 }}>{filename}</div>
+          <div style={{ fontSize: 7, color: 'var(--color-ink-muted)' }}>{historyItem.date}</div>
+        </button>
+        <button
+          type="button"
+          aria-label={`删除审查历史 ${filename}`}
+          title="删除记录"
+          onClick={(event) => handleHistoryDelete(event, historyItem)}
+          style={{
+            width: variant === 'mobile' ? 46 : 42,
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: 'none',
+            borderLeft: '3px solid black',
+            background: 'var(--color-paper)',
+            color: 'var(--color-red)',
+            cursor: 'pointer',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-red-light)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-paper)')}
+        >
+          <Trash2 size={variant === 'mobile' ? 14 : 15} />
+        </button>
+      </div>
+    )
+  }
+
+  if (isMobile) {
+    return (
+      <nav style={{
+        position: 'fixed',
+        bottom: mobileNavBottom,
+        left: 8,
+        right: 8,
+        height: 64,
+        display: 'flex',
+        flexDirection: 'row',
+        background: 'var(--color-cream-dark)',
+        border: '4px solid black',
+        boxShadow: '0 6px 0 rgba(0,0,0,1)',
+        overflow: 'hidden',
+        zIndex: 300,
+      }}>
+        {navItems.map(item => (
+          <button
+            ref={item.ref as any}
+            key={item.id}
+            type="button"
+            className={`pixel-sidebar-btn${activeView === item.id || (item.id === 'history' && showHistory) ? ' active' : ''}`}
+            onClick={item.onClick}
+            style={{ flex: 1, minWidth: 0, height: '100%', flexDirection: 'column', gap: 3, fontSize: 9, lineHeight: 1.2, padding: '4px 2px', borderTop: 'none', borderBottom: 'none', borderLeft: 'none', borderRight: '4px solid black' }}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+          </button>
+        ))}
+        <button
+          type="button"
+          className={`pixel-sidebar-btn${activeView === 'settings' ? ' active' : ''}`}
+          onClick={onOpenSettings}
+          style={{ flex: 1, minWidth: 0, height: '100%', flexDirection: 'column', gap: 3, fontSize: 9, lineHeight: 1.2, padding: '4px 2px', borderTop: 'none', borderBottom: 'none', borderLeft: 'none', borderRight: '4px solid black' }}
+        >
+          <Settings size={20} />
+          <span>设置</span>
+        </button>
+        <button
+          type="button"
+          onClick={onLogout}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 3,
+            border: 'none',
+            background: 'var(--color-paper)',
+            color: 'var(--color-red)',
+            fontFamily: 'var(--font-pixel)',
+            fontSize: 9,
+            lineHeight: 1.2,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            cursor: 'pointer',
+          }}
+        >
+          退出
+        </button>
+
+        {/* History dropdown for mobile */}
+        {showHistory && (
+          <div
+            ref={historyDropdownRef}
+            style={{
+              position: 'fixed',
+              bottom: mobileHistoryBottom,
+              left: 8,
+              right: 8,
+              maxHeight: '60vh',
+              background: 'var(--color-paper)',
+              border: '4px solid black',
+              boxShadow: '0 6px 0 rgba(0,0,0,1)',
+              zIndex: 400,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <div style={{ padding: '10px 14px', background: 'var(--color-orange)', color: 'white', fontFamily: 'var(--font-pixel)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', borderBottom: '4px solid black', flexShrink: 0 }}>
+              审查历史
+            </div>
+            {historyItems.length === 0 ? (
+              <div style={{ padding: '24px 14px', textAlign: 'center', fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'var(--color-ink-muted)' }}>暂无历史记录</div>
+            ) : (
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                {historyItems.map(historyItem => renderHistoryItem(historyItem, 'mobile'))}
+              </div>
+            )}
+          </div>
+        )}
+      </nav>
+    )
+  }
+
+  return (
+    <aside style={{
+      width: 112,
+      flexShrink: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      background: 'var(--color-cream-dark)',
+      borderRight: '4px solid black',
+      overflow: 'visible',
+      position: 'relative',
+    }}>
+      {/* Doge logo strip */}
+      <div style={{ padding: 8, borderBottom: '4px solid black' }}>
+        <div style={{
+          border: '3px solid black',
+          background: 'white',
+          padding: '7px 4px',
+          textAlign: 'center',
+          fontFamily: 'var(--font-header)',
+          fontSize: 7,
+          lineHeight: 1.5,
+          color: 'var(--color-ink)',
+          overflow: 'hidden',
+        }}>
+          合规智审<br />Copilot
+        </div>
+      </div>
+
+      {/* Doge avatar with ONLINE badge */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '12px 8px', borderBottom: '4px solid black', background: 'var(--color-paper)' }}>
+        <div style={{ position: 'relative' }}>
+          <img
+            src={dogeImage}
+            alt="Doge"
+            onError={handleDogeImageError}
+            style={{
+              width: 56,
+              height: 56,
+              border: '3px solid black',
+              objectFit: 'contain',
+              imageRendering: 'pixelated',
+              background: 'white',
+            }}
+          />
+          <div style={{
+            position: 'absolute',
+            bottom: -4,
+            right: -4,
+            background: 'var(--color-green)',
+            border: '2px solid black',
+            padding: '1px 4px',
+            fontFamily: 'var(--font-pixel)',
+            fontSize: 6,
+            fontWeight: 700,
+            color: 'white',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            whiteSpace: 'nowrap',
+          }}>
+            ONLINE
+          </div>
+        </div>
+      </div>
+
+      {/* Nav items */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {navItems.map(item => {
+          const button = (
+            <button
+              ref={item.ref as any}
+              type="button"
+              className={`pixel-sidebar-btn${activeView === item.id || (item.id === 'history' && showHistory) ? ' active' : ''}`}
+              onClick={item.onClick}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          )
+
+          if (item.id !== 'history') {
+            return <div key={item.id}>{button}</div>
+          }
+
+          return (
+            <div key={item.id} style={{ position: 'relative', overflow: 'visible' }}>
+              {button}
+              {showHistory && (
+                <div
+                  ref={historyDropdownRef}
+                  style={{
+                    position: 'absolute',
+                    left: 'calc(100% + 8px)',
+                    top: 0,
+                    width: 280,
+                    background: 'var(--color-paper)',
+                    border: '4px solid black',
+                    boxShadow: '6px 6px 0 rgba(0,0,0,1)',
+                    zIndex: 200,
+                    maxHeight: 400,
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <div style={{
+                    padding: '10px 14px',
+                    background: 'var(--color-orange)',
+                    color: 'white',
+                    fontFamily: 'var(--font-pixel)',
+                    fontSize: 9,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    borderBottom: '4px solid black',
+                    flexShrink: 0,
+                  }}>
+                    审查历史
+                  </div>
+                  {historyItems.length === 0 ? (
+                    <div style={{ padding: '24px 14px', textAlign: 'center', fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'var(--color-ink-muted)' }}>
+                      暂无历史记录
+                    </div>
+                  ) : (
+                    <div style={{ overflowY: 'auto', flex: 1 }}>
+                      {historyItems.map(historyItem => renderHistoryItem(historyItem, 'desktop'))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Footer: settings + logout */}
+      <div style={{ borderTop: '4px solid black' }}>
+        {user?.email && (
+          <div style={{
+            padding: '8px 8px',
+            fontFamily: 'var(--font-pixel)',
+            fontSize: 9,
+            wordBreak: 'break-all',
+            textAlign: 'center',
+            background: 'white',
+            borderBottom: '4px solid black',
+            color: 'var(--color-ink-soft)',
+            lineHeight: 1.6,
+          }}>
+            {user.email}
+          </div>
+        )}
+        <button
+          type="button"
+          className={`pixel-sidebar-btn${activeView === 'settings' ? ' active' : ''}`}
+          style={{ borderTop: 'none', borderBottom: 'none' }}
+          onClick={onOpenSettings}
+        >
+          <Settings size={26} />
+          <span>系统设置</span>
+        </button>
+        <button
+          type="button"
+          onClick={onLogout}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
+            width: '100%',
+            padding: '10px 8px',
+            border: 'none',
+            borderTop: '4px solid black',
+            background: 'var(--color-paper)',
+            color: 'var(--color-red)',
+            fontFamily: 'var(--font-pixel)',
+            fontSize: 10,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            cursor: 'pointer',
+            transition: 'background 0.1s',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-red-light)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-paper)')}
+        >
+          退出登录
+        </button>
+      </div>
+
+    </aside>
+  )
+}
