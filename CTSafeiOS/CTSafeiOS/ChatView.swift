@@ -68,7 +68,7 @@ struct ChatView: View {
                                 .id(message.id)
                         }
                         if isLoading {
-                            HStack(alignment: .bottom, spacing: 10) {
+                            HStack(alignment: .top, spacing: 10) {
                                 DogeBadge(size: 32)
                                 TypingIndicator()
                                 Spacer(minLength: 60)
@@ -367,34 +367,15 @@ struct ChatBubble: View {
     let message: ChatMessage
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            if message.role != "user" {
-                DogeBadge(size: 32)
-            } else {
+        if message.role == "user" {
+            HStack(alignment: .bottom, spacing: 10) {
                 Spacer(minLength: 60)
-            }
-
-            VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 4) {
                 Text(message.content)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(message.role == "user" ? DogeTheme.blue : Color.white)
-                    .foregroundStyle(message.role == "user" ? Color.white : DogeTheme.ink)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(message.role == "user" ? DogeTheme.blue : DogeTheme.ink,
-                                    lineWidth: message.role == "user" ? 0 : 2)
-                    )
+                    .background(DogeTheme.blue)
+                    .foregroundStyle(Color.white)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                if let model = message.model, message.role != "user" {
-                    Text(model)
-                        .font(.caption2)
-                        .foregroundStyle(DogeTheme.muted.opacity(0.7))
-                }
-            }
-
-            if message.role == "user" {
                 Circle()
                     .fill(DogeTheme.blue.opacity(0.15))
                     .frame(width: 32, height: 32)
@@ -403,7 +384,27 @@ struct ChatBubble: View {
                             .font(.system(size: 14))
                             .foregroundStyle(DogeTheme.blue)
                     )
-            } else {
+            }
+        } else {
+            HStack(alignment: .top, spacing: 10) {
+                DogeBadge(size: 32)
+                VStack(alignment: .leading, spacing: 4) {
+                    if let model = message.model {
+                        Text(model)
+                            .font(.caption2)
+                            .foregroundStyle(DogeTheme.muted.opacity(0.7))
+                    }
+                    Text(message.content)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color.white)
+                        .foregroundStyle(DogeTheme.ink)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(DogeTheme.ink, lineWidth: 2)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
                 Spacer(minLength: 60)
             }
         }
