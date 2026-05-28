@@ -276,7 +276,6 @@ struct HomeView: View {
 
         var collectedIssues: [[String: Any]] = []
         var hitBreakpoint = false
-        var hitComplete = false
 
         do {
             for try await event in SSEClient.stream(
@@ -295,7 +294,6 @@ struct HomeView: View {
                     break
                 }
                 if event.event == "review_complete" {
-                    hitComplete = true
                     await finishReview(sessionId: sessionId)
                     return
                 }
@@ -306,14 +304,14 @@ struct HomeView: View {
                 }
             }
         } catch {
-            if !hitBreakpoint && !hitComplete {
-                phase = .failed("网络错误：\(error.localizedDescription)")
-                return
-            }
+            // Stream error — server may have already completed, try fetching result
+            await finishReviewOrFallback(sessionId: sessionId)
+            return
         }
 
-        guard hitBreakpoint || hitComplete else {
-            phase = .failed("审查未返回结果，请重试")
+        // Stream ended without breakpoint or review_complete
+        if !hitBreakpoint {
+            await finishReviewOrFallback(sessionId: sessionId)
             return
         }
 
@@ -347,12 +345,27 @@ struct HomeView: View {
                 }
             }
         } catch {
-            phase = .failed("报告生成失败：\(error.localizedDescription)")
+            await finishReviewOrFallback(sessionId: sessionId)
             return
         }
 
-        // Fallback: SSE ended without review_complete, check server
-        await finishReview(sessionId: sessionId)
+        // Confirm SSE ended without review_complete
+        await finishReviewOrFallback(sessionId: sessionId)
+    }
+
+    /// Try to fetch the completed session from server. If found, mark complete; otherwise show error.
+    private func finishReviewOrFallback(sessionId: String) async {
+        do {
+            let response: ReviewSessionsResponse = try await APIClient.shared.get("/review-sessions")
+            if let match = response.sessions.first(where: { $0.sessionId == sessionId }) {
+                if match.status == "complete" || match.status == "breakpoint" {
+                    selectedSession = match
+                    phase = .complete(sessionId: sessionId)
+                    return
+                }
+            }
+        } catch {}
+        phase = .failed("审查未返回结果，请重试")
     }
 
     private func handleReviewEvent(_ eventName: String, dict: [String: Any], sessionId: String, collectedIssues: inout [[String: Any]]) {
